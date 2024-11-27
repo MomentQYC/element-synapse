@@ -94,7 +94,6 @@ class SynapseRequest(Request):
         self.reactor = site.reactor
         self._channel = channel  # this is used by the tests
         self.start_time = 0.0
-        self.experimental_cors_msc3886 = site.experimental_cors_msc3886
 
         # The requester, if authenticated. For federation requests this is the
         # server name, for client requests this is the Requester object.
@@ -658,17 +657,13 @@ class SynapseSite(ProxySite):
         )
 
         self.site_tag = site_tag
-        self.reactor = reactor
+        self.reactor: ISynapseReactor = reactor
 
         assert config.http_options is not None
         proxied = config.http_options.x_forwarded
         request_class = XForwardedForRequest if proxied else SynapseRequest
 
         request_id_header = config.http_options.request_id_header
-
-        self.experimental_cors_msc3886: bool = (
-            config.http_options.experimental_cors_msc3886
-        )
 
         def request_factory(channel: HTTPChannel, queued: bool) -> Request:
             return request_class(
@@ -683,7 +678,7 @@ class SynapseSite(ProxySite):
         self.access_logger = logging.getLogger(logger_name)
         self.server_version_string = server_version_string.encode("ascii")
 
-    def log(self, request: SynapseRequest) -> None:
+    def log(self, request: SynapseRequest) -> None:  # type: ignore[override]
         pass
 
 

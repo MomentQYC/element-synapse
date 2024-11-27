@@ -322,7 +322,7 @@ The following command will let you run the integration test with the most common
 configuration:
 
 ```sh
-$ docker run --rm -it -v /path/where/you/have/cloned/the/repository\:/src:ro -v /path/to/where/you/want/logs\:/logs matrixdotorg/sytest-synapse:focal
+$ docker run --rm -it -v /path/where/you/have/cloned/the/repository\:/src:ro -v /path/to/where/you/want/logs\:/logs matrixdotorg/sytest-synapse:bullseye
 ```
 (Note that the paths must be full paths! You could also write `$(realpath relative/path)` if needed.)
 
@@ -449,9 +449,9 @@ For example, a fix in PR #1234 would have its changelog entry in
 > The security levels of Florbs are now validated when received
 > via the `/federation/florb` endpoint. Contributed by Jane Matrix.
 
-If there are multiple pull requests involved in a single bugfix/feature/etc,
-then the content for each `changelog.d` file should be the same. Towncrier will
-merge the matching files together into a single changelog entry when we come to
+If there are multiple pull requests involved in a single bugfix/feature/etc, then the
+content for each `changelog.d` file and file extension should be the same. Towncrier
+will merge the matching files together into a single changelog entry when we come to
 release.
 
 ### How do I know what to call the changelog file before I create the PR?

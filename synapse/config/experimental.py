@@ -140,6 +140,12 @@ class MSC3861:
                 ("experimental", "msc3861", "client_auth_method"),
             )
 
+    introspection_endpoint: Optional[str] = attr.ib(
+        default=None,
+        validator=attr.validators.optional(attr.validators.instance_of(str)),
+    )
+    """The URL of the introspection endpoint used to validate access tokens."""
+
     account_management_url: Optional[str] = attr.ib(
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(str)),
@@ -332,8 +338,10 @@ class ExperimentalConfig(Config):
         # MSC3391: Removing account data.
         self.msc3391_enabled = experimental.get("msc3391_enabled", False)
 
-        # MSC3575 (Sliding Sync API endpoints)
-        self.msc3575_enabled: bool = experimental.get("msc3575_enabled", False)
+        # MSC3575 (Sliding Sync) alternate endpoints, c.f. MSC4186.
+        #
+        # This is enabled by default as a replacement for the sliding sync proxy.
+        self.msc3575_enabled: bool = experimental.get("msc3575_enabled", True)
 
         # MSC3773: Thread notifications
         self.msc3773_enabled: bool = experimental.get("msc3773_enabled", False)
@@ -356,11 +364,6 @@ class ExperimentalConfig(Config):
 
         # MSC3874: Filtering /messages with rel_types / not_rel_types.
         self.msc3874_enabled: bool = experimental.get("msc3874_enabled", False)
-
-        # MSC3886: Simple client rendezvous capability
-        self.msc3886_endpoint: Optional[str] = experimental.get(
-            "msc3886_endpoint", None
-        )
 
         # MSC3890: Remotely silence local notifications
         # Note: This option requires "experimental_features.msc3391_enabled" to be
@@ -392,9 +395,6 @@ class ExperimentalConfig(Config):
 
         # MSC3391: Removing account data.
         self.msc3391_enabled = experimental.get("msc3391_enabled", False)
-
-        # MSC3967: Do not require UIA when first uploading cross signing keys
-        self.msc3967_enabled = experimental.get("msc3967_enabled", False)
 
         # MSC3861: Matrix architecture change to delegate authentication via OIDC
         try:
@@ -436,10 +436,15 @@ class ExperimentalConfig(Config):
                 ("experimental", "msc4108_delegation_endpoint"),
             )
 
-        self.msc4115_membership_on_events = experimental.get(
-            "msc4115_membership_on_events", False
+        self.msc3823_account_suspension = experimental.get(
+            "msc3823_account_suspension", False
         )
 
-        self.msc3916_authenticated_media_enabled = experimental.get(
-            "msc3916_authenticated_media_enabled", False
-        )
+        # MSC4151: Report room API (Client-Server API)
+        self.msc4151_enabled: bool = experimental.get("msc4151_enabled", False)
+
+        # MSC4210: Remove legacy mentions
+        self.msc4210_enabled: bool = experimental.get("msc4210_enabled", False)
+
+        # MSC4222: Adding `state_after` to sync v2
+        self.msc4222_enabled: bool = experimental.get("msc4222_enabled", False)

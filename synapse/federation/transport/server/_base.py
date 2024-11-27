@@ -113,7 +113,7 @@ class Authenticator:
                 ):
                     raise AuthenticationError(
                         HTTPStatus.UNAUTHORIZED,
-                        "Destination mismatch in auth header",
+                        f"Destination mismatch in auth header, received: {destination!r}",
                         Codes.UNAUTHORIZED,
                     )
         if (
@@ -360,13 +360,33 @@ class BaseFederationServlet:
                                     "request"
                                 )
                                 return None
+                            if (
+                                func.__self__.__class__.__name__  # type: ignore
+                                == "FederationMediaDownloadServlet"
+                                or func.__self__.__class__.__name__  # type: ignore
+                                == "FederationMediaThumbnailServlet"
+                            ):
+                                response = await func(
+                                    origin, content, request, *args, **kwargs
+                                )
+                            else:
+                                response = await func(
+                                    origin, content, request.args, *args, **kwargs
+                                )
+                    else:
+                        if (
+                            func.__self__.__class__.__name__  # type: ignore
+                            == "FederationMediaDownloadServlet"
+                            or func.__self__.__class__.__name__  # type: ignore
+                            == "FederationMediaThumbnailServlet"
+                        ):
+                            response = await func(
+                                origin, content, request, *args, **kwargs
+                            )
+                        else:
                             response = await func(
                                 origin, content, request.args, *args, **kwargs
                             )
-                    else:
-                        response = await func(
-                            origin, content, request.args, *args, **kwargs
-                        )
             finally:
                 # if we used the origin's context as the parent, add a new span using
                 # the servlet span as a parent, so that we have a link

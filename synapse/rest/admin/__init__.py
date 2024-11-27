@@ -98,9 +98,12 @@ from synapse.rest.admin.users import (
     DeactivateAccountRestServlet,
     PushersRestServlet,
     RateLimitRestServlet,
+    RedactUser,
+    RedactUserStatus,
     ResetPasswordRestServlet,
     SearchUsersRestServlet,
     ShadowBanRestServlet,
+    SuspendAccountRestServlet,
     UserAdminServlet,
     UserByExternalId,
     UserByThreePid,
@@ -318,6 +321,8 @@ def register_servlets(hs: "HomeServer", http_server: HttpServer) -> None:
     UserReplaceMasterCrossSigningKeyRestServlet(hs).register(http_server)
     UserByExternalId(hs).register(http_server)
     UserByThreePid(hs).register(http_server)
+    RedactUser(hs).register(http_server)
+    RedactUserStatus(hs).register(http_server)
 
     DeviceRestServlet(hs).register(http_server)
     DevicesRestServlet(hs).register(http_server)
@@ -327,6 +332,8 @@ def register_servlets(hs: "HomeServer", http_server: HttpServer) -> None:
     BackgroundUpdateRestServlet(hs).register(http_server)
     BackgroundUpdateStartJobRestServlet(hs).register(http_server)
     ExperimentalFeaturesRestServlet(hs).register(http_server)
+    if hs.config.experimental.msc3823_account_suspension:
+        SuspendAccountRestServlet(hs).register(http_server)
 
 
 def register_servlets_for_client_rest_resource(

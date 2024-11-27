@@ -19,6 +19,7 @@
 #
 #
 import json
+import logging
 from typing import List
 
 from parameterized import parameterized, parameterized_class
@@ -42,6 +43,8 @@ from tests.federation.transport.test_knocking import (
     KnockingStrippedStateEventHelperMixin,
 )
 from tests.server import TimedOutException
+
+logger = logging.getLogger(__name__)
 
 
 class FilterTestCase(unittest.HomeserverTestCase):
@@ -279,21 +282,32 @@ class SyncTypingTests(unittest.HomeserverTestCase):
         self.assertEqual(200, channel.code)
         next_batch = channel.json_body["next_batch"]
 
-        # This should time out! But it does not, because our stream token is
-        # ahead, and therefore it's saying the typing (that we've actually
-        # already seen) is new, since it's got a token above our new, now-reset
-        # stream token.
-        channel = self.make_request("GET", sync_url % (access_token, next_batch))
-        self.assertEqual(200, channel.code)
-        next_batch = channel.json_body["next_batch"]
-
         # Clear the typing information, so that it doesn't think everything is
-        # in the future.
+        # in the future. This happens automatically when the typing stream
+        # resets.
         typing._reset()
 
-        # Now it SHOULD fail as it never completes!
+        # Nothing new, so we time out.
         with self.assertRaises(TimedOutException):
             self.make_request("GET", sync_url % (access_token, next_batch))
+
+        # Sync and start typing again.
+        sync_channel = self.make_request(
+            "GET", sync_url % (access_token, next_batch), await_result=False
+        )
+        self.assertFalse(sync_channel.is_finished())
+
+        channel = self.make_request(
+            "PUT",
+            typing_url % (room, other_user_id, other_access_token),
+            b'{"typing": true, "timeout": 30000}',
+        )
+        self.assertEqual(200, channel.code)
+
+        # Sync should now return.
+        sync_channel.await_result()
+        self.assertEqual(200, sync_channel.code)
+        next_batch = sync_channel.json_body["next_batch"]
 
 
 class SyncKnockTestCase(KnockingStrippedStateEventHelperMixin):
@@ -1094,12 +1108,11 @@ class DeviceUnusedFallbackKeySyncTestCase(unittest.HomeserverTestCase):
         self.assertEqual(res, [])
 
         # Upload a fallback key for the user/device
-        fallback_key = {"alg1:k1": "fallback_key1"}
         self.get_success(
             self.e2e_keys_handler.upload_keys_for_user(
                 alice_user_id,
                 test_device_id,
-                {"fallback_keys": fallback_key},
+                {"fallback_keys": {"alg1:k1": "fallback_key1"}},
             )
         )
         # We should now have an unused alg1 key

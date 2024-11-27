@@ -27,7 +27,6 @@ from typing import (
     Final,
     FrozenSet,
     List,
-    Mapping,
     Optional,
     Sequence,
     Set,
@@ -48,6 +47,7 @@ from synapse.events.utils import clone_event, prune_event
 from synapse.logging.opentracing import trace
 from synapse.storage.controllers import StorageControllers
 from synapse.storage.databases.main import DataStore
+from synapse.synapse_rust.events import event_visible_to_server
 from synapse.types import RetentionPolicy, StateMap, StrCollection, get_domain_from_id
 from synapse.types.state import StateFilter
 from synapse.util import Clock
@@ -82,7 +82,6 @@ async def filter_events_for_client(
     is_peeking: bool = False,
     always_include_ids: FrozenSet[str] = frozenset(),
     filter_send_to_client: bool = True,
-    msc4115_membership_on_events: bool = False,
 ) -> List[EventBase]:
     """
     Check which events a user is allowed to see. If the user can see the event but its
@@ -101,12 +100,10 @@ async def filter_events_for_client(
         filter_send_to_client: Whether we're checking an event that's going to be
             sent to a client. This might not always be the case since this function can
             also be called to check whether a user can see the state at a given point.
-        msc4115_membership_on_events: Whether to include the requesting user's
-            membership in the "unsigned" data, per MSC4115.
 
     Returns:
-        The filtered events. If `msc4115_membership_on_events` is true, the `unsigned`
-        data is annotated with the membership state of `user_id` at each event.
+        The filtered events. The `unsigned` data is annotated with the membership state
+        of `user_id` at each event.
     """
     # Filter out events that have been soft failed so that we don't relay them
     # to clients.
@@ -138,9 +135,9 @@ async def filter_events_for_client(
         retention_policies: Dict[str, RetentionPolicy] = {}
 
         for room_id in room_ids:
-            retention_policies[room_id] = (
-                await storage.main.get_retention_policy_for_room(room_id)
-            )
+            retention_policies[
+                room_id
+            ] = await storage.main.get_retention_policy_for_room(room_id)
 
     def allowed(event: EventBase) -> Optional[EventBase]:
         state_after_event = event_id_to_state.get(event.event_id)
@@ -151,16 +148,13 @@ async def filter_events_for_client(
             filter_send_to_client=filter_send_to_client,
             sender_ignored=event.sender in ignore_list,
             always_include_ids=always_include_ids,
-            retention_policy=retention_policies[room_id],
+            retention_policy=retention_policies[event.room_id],
             state=state_after_event,
             is_peeking=is_peeking,
             sender_erased=erased_senders.get(event.sender, False),
         )
         if filtered is None:
             return None
-
-        if not msc4115_membership_on_events:
-            return filtered
 
         # Annotate the event with the user's membership after the event.
         #
@@ -186,7 +180,7 @@ async def filter_events_for_client(
         # Copy the event before updating the unsigned data: this shouldn't be persisted
         # to the cache!
         cloned = clone_event(filtered)
-        cloned.unsigned[EventUnsignedContentFields.MSC4115_MEMBERSHIP] = user_membership
+        cloned.unsigned[EventUnsignedContentFields.MEMBERSHIP] = user_membership
 
         return cloned
 
@@ -634,17 +628,6 @@ async def filter_events_for_server(
     """Filter a list of events based on whether the target server is allowed to
     see them.
 
-    For a fully stated room, the target server is allowed to see an event E if:
-      - the state at E has world readable or shared history vis, OR
-      - the state at E says that the target server is in the room.
-
-    For a partially stated room, the target server is allowed to see E if:
-      - E was created by this homeserver, AND:
-          - the partial state at E has world readable or shared history vis, OR
-          - the partial state at E says that the target server is in the room.
-
-    TODO: state before or state after?
-
     Args:
         storage
         target_server_name
@@ -660,35 +643,6 @@ async def filter_events_for_server(
     Returns
         The filtered events.
     """
-
-    def is_sender_erased(event: EventBase, erased_senders: Mapping[str, bool]) -> bool:
-        if erased_senders and erased_senders[event.sender]:
-            logger.info("Sender of %s has been erased, redacting", event.event_id)
-            return True
-        return False
-
-    def check_event_is_visible(
-        visibility: str, memberships: StateMap[EventBase]
-    ) -> bool:
-        if visibility not in (HistoryVisibility.INVITED, HistoryVisibility.JOINED):
-            return True
-
-        # We now loop through all membership events looking for
-        # membership states for the requesting server to determine
-        # if the server is either in the room or has been invited
-        # into the room.
-        for ev in memberships.values():
-            assert get_domain_from_id(ev.state_key) == target_server_name
-
-            memtype = ev.membership
-            if memtype == Membership.JOIN:
-                return True
-            elif memtype == Membership.INVITE:
-                if visibility == HistoryVisibility.INVITED:
-                    return True
-
-        # server has no users in the room: redact
-        return False
 
     if filter_out_erased_senders:
         erased_senders = await storage.main.are_users_erased(e.sender for e in events)
@@ -732,20 +686,16 @@ async def filter_events_for_server(
         target_server_name,
     )
 
-    def include_event_in_output(e: EventBase) -> bool:
-        erased = is_sender_erased(e, erased_senders)
-        visible = check_event_is_visible(
-            event_to_history_vis[e.event_id], event_to_memberships.get(e.event_id, {})
-        )
-
-        if e.event_id in partial_state_invisible_event_ids:
-            visible = False
-
-        return visible and not erased
-
     to_return = []
     for e in events:
-        if include_event_in_output(e):
+        if event_visible_to_server(
+            sender=e.sender,
+            target_server_name=target_server_name,
+            history_visibility=event_to_history_vis[e.event_id],
+            erased_senders=erased_senders,
+            partial_state_invisible=e.event_id in partial_state_invisible_event_ids,
+            memberships=list(event_to_memberships.get(e.event_id, {}).values()),
+        ):
             to_return.append(e)
         elif redact:
             to_return.append(prune_event(e))
@@ -802,7 +752,7 @@ async def _event_to_history_vis(
 
 async def _event_to_memberships(
     storage: StorageControllers, events: Collection[EventBase], server_name: str
-) -> Dict[str, StateMap[EventBase]]:
+) -> Dict[str, StateMap[Tuple[str, str]]]:
     """Get the remote membership list at each of the given events
 
     Returns a map from event id to state map, which will contain only membership events
@@ -855,7 +805,7 @@ async def _event_to_memberships(
 
     return {
         e_id: {
-            key: event_map[inner_e_id]
+            key: (event_map[inner_e_id].state_key, event_map[inner_e_id].membership)
             for key, inner_e_id in key_to_eid.items()
             if inner_e_id in event_map
         }
